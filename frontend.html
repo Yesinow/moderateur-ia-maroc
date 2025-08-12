@@ -1,0 +1,388 @@
+<!DOCTYPE html>
+<html lang="fr">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Modérateur Marocain – Analyse de contenu</title>
+  <!-- TailwindCSS via CDN -->
+  <script src="https://cdn.tailwindcss.com"></script>
+  <!-- Tesseract.js pour l'OCR client-side (analyse du texte des images). -->
+  <script src="https://cdn.jsdelivr.net/npm/tesseract.js@4.0.2/dist/tesseract.min.js"></script>
+  <style>
+    body {
+      font-family: ui-sans-serif, system-ui, -apple-system, BlinkMacSystemFont,
+        "Segoe UI", Roboto, "Helvetica Neue", Arial, "Noto Sans", sans-serif,
+        "Apple Color Emoji", "Segoe UI Emoji", "Segoe UI Symbol",
+        "Noto Color Emoji";
+    }
+  </style>
+</head>
+<body class="bg-gray-50 min-h-screen py-8">
+  <div class="max-w-3xl mx-auto p-6 bg-white shadow-xl rounded-xl">
+    <h1 class="text-2xl font-bold mb-4">Modérateur Marocain</h1>
+    <p class="mb-4 text-sm text-gray-600">
+      Cet outil analyse votre titre, texte et image pour détecter des contenus
+      offensants (nudité, violence, harcèlement, discrimination, drogues ou
+      langage grossier) et repère les références aux principaux codes juridiques marocains
+      (dont les lois sur la protection du consommateur et la presse). Aucun
+      envoi de données à un serveur n'est effectué&nbsp;: tout se passe dans
+      votre navigateur.
+    </p>
+    <form id="analyze-form" class="space-y-4">
+      <div>
+        <label for="title" class="block mb-1 font-medium">Titre (optionnel)</label>
+        <input
+          type="text"
+          id="title"
+          class="w-full border rounded-md p-2"
+          placeholder="Saisissez un titre" />
+      </div>
+      <div>
+        <label for="text" class="block mb-1 font-medium">Texte (optionnel)</label>
+        <textarea
+          id="text"
+          class="w-full border rounded-md p-2"
+          rows="4"
+          placeholder="Saisissez le contenu textuel"></textarea>
+      </div>
+      <div>
+        <label for="image" class="block mb-1 font-medium">Image (optionnel)</label>
+        <input type="file" id="image" accept="image/*" class="block" />
+      </div>
+      <button
+        type="submit"
+        class="px-4 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700"
+      >
+        Analyser
+      </button>
+    </form>
+    <div id="result" class="mt-6 hidden">
+      <h2 class="text-xl font-semibold mb-2">Résultat</h2>
+      <p id="validity" class="font-bold"></p>
+      <div id="categories" class="mt-2"></div>
+      <div id="laws" class="mt-2"></div>
+      <div id="evidence" class="mt-2"></div>
+      <div id="nudity" class="mt-2"></div>
+    </div>
+  </div>
+  <script>
+    // Base de données des lois (générée côté serveur). Mise en dur ici pour
+    // simplifier l'utilisation hors connexion. Les descriptions sont reprises
+    // intégralement du fichier JSON.
+    const LAW_DB = (() => {
+      return {
+        "Code pénal": {
+          synonyms: [
+            "code penal",
+            "code pénal",
+            "code penal marocain",
+            "droit pénal",
+          ],
+          description:
+            "Le Code pénal marocain est la codification du droit pénal au Maroc. Entré en vigueur le 17 juin 1963 pour remplacer le Code pénal de 1913, il a été promulgué par le dahir n° 413‑59‑1. Ce texte a été amendé à plusieurs reprises pour l’aligner aux conventions internationales ratifiées par le Royaume et a fait l’objet d’une réforme importante en 2015.",
+        },
+        "Code de procédure civile": {
+          synonyms: [
+            "code de procedure civile",
+            "code procédure civile",
+            "procédure civile",
+          ],
+          description:
+            "Au Maroc, le Code de procédure civile est le texte législatif qui édicte l’ensemble des règles relatives à l’organisation d’une action en justice devant une juridiction civile.",
+        },
+        "Code de commerce": {
+          synonyms: [
+            "code de commerce",
+            "code commerce",
+            "commerce",
+          ],
+          description:
+            "Le Code de commerce marocain est le texte législatif qui régit les actes de commerce et les commerçants.",
+        },
+        "Moudawana (Code de la famille)": {
+          synonyms: [
+            "moudawana",
+            "code de la famille",
+            "mudawana",
+            "code du statut personnel",
+          ],
+          description:
+            "La Moudawana, ou Code de la famille, est un corpus de lois adopté en 1958 qui régit des domaines tels que le mariage, le divorce, l’héritage et la garde des enfants. La réforme de 2004 a renforcé les droits des femmes en leur conférant l’auto‑tutelle, en reconnaissant leur droit au divorce et à la garde des enfants, en restreignant la polygamie, en relevant l’âge légal du mariage à 18 ans et en criminalisant le harcèlement sexuel. Sous l’ancienne version, les hommes pouvaient divorcer unilatéralement et imposer des unions ; la réforme met fin à ces pratiques.",
+        },
+        "Loi sur la protection du consommateur": {
+          synonyms: [
+            "loi 31-08",
+            "loi 31 08",
+            "protection du consommateur",
+            "loi de protection du consommateur",
+            "consumer protection law",
+          ],
+          description:
+            "La loi n° 31‑08 édictant des mesures de protection du consommateur renforce les droits des consommateurs en leur garantissant une meilleure information, en les protégeant contre les clauses abusives et certaines pratiques commerciales et en prévoyant des dispositions complémentaires relatives aux garanties et au service après‑vente. Elle permet également aux associations de consommateurs reconnues d’utilité publique d’ester en justice pour représenter les intérêts collectifs des consommateurs.",
+        },
+        "Loi sur la presse et l’édition": {
+          synonyms: [
+            "loi 88-13",
+            "loi 88 13",
+            "presse et édition",
+            "code de la presse",
+            "press and publishing law",
+            "loi sur la presse",
+          ],
+          description:
+            "La loi n° 88‑13 relative à la presse et à l’édition, composante du code de la presse et de l’édition, encadre l’exercice de la presse et réglemente la publicité. Elle interdit toute publicité incitant à la haine, au terrorisme, aux crimes de guerre, au génocide ou à la torture, ainsi que toute atteinte basée sur la religion, le sexe ou la couleur. Elle proscrit également la propagation de fausses nouvelles et de contenus portant atteinte à la religion islamique, au régime monarchique ou à l’intégrité territoriale et sanctionne de 20 000 à 200 000 dirhams la publication de fausses informations. Ces dispositions visent à protéger le public et à garantir le respect des droits fondamentaux dans le domaine de la communication écrite et électronique.",
+        },
+      };
+    })();
+
+    // Configuration des catégories et de leurs mots clés/regex. Doit rester en
+    // synchronisation avec la configuration serveur.
+    const POLICY = {
+      nudité: {
+        mots_cles: ["nudité", "nu", "exhibition"],
+        regex: [/\bposer?\s*nue?\b/i],
+      },
+      violence: {
+        mots_cles: [
+          "meurtre",
+          "assassiner",
+          "tuer",
+          "agression",
+          "violence",
+          "torture",
+          "terrorisme",
+        ],
+        regex: [/\binciter\s+à\s+la\s+violence\b/i],
+      },
+      harcèlement: {
+        mots_cles: ["harceler", "insulte", "injure", "menace", "diffamation"],
+        regex: [/\bharcèlement\s+en\s+ligne\b/i],
+      },
+      discrimination: {
+        mots_cles: [
+          "racisme",
+          "raciste",
+          "sexisme",
+          "sexiste",
+          "homophobie",
+          "xénophobie",
+          "haine raciale",
+        ],
+        regex: [],
+      },
+      drogue: {
+        mots_cles: ["drogue", "cannabis", "coke", "ecstasy", "héroïne"],
+        regex: [],
+      },
+      // Cette catégorie supplémentaire est déclenchée par des insultes provenant de plusieurs langues.
+      "langage grossier": {
+        mots_cles: [],
+        regex: [],
+      },
+    };
+    const BLOCKING = ["nudité", "violence", "harcèlement", "discrimination", "drogue", "langage grossier"];
+
+    // Dictionnaire de mots grossiers par langue. Cette liste est volontairement
+    // restreinte et doit être étendue selon les besoins. Les mots sont en
+    // minuscules pour simplifier la comparaison.
+    const BAD_WORDS = {
+      ar: ["حمار", "غبي", "كلب", "قذر"],
+      darija: ["حمار", "بغل", "حماق", "كلبة", "عرص"],
+      en: ["fuck", "shit", "bitch", "asshole", "bastard"],
+      fr: ["con", "connard", "merde", "pute", "salope"],
+      es: ["puta", "mierda", "cabron", "gilipollas", "pendejo"],
+      it: ["cazzo", "stronzo", "merda", "vaffanculo", "puttana"],
+    };
+
+    function analyzeText(text) {
+      const lower = text.toLowerCase();
+      const categories = [];
+      const evidence = {};
+      for (const cat in POLICY) {
+        const rules = POLICY[cat];
+        const matches = [];
+        for (const kw of rules.mots_cles) {
+          if (lower.includes(kw.toLowerCase())) {
+            matches.push(kw);
+          }
+        }
+        for (const regex of rules.regex) {
+          const found = lower.match(regex);
+          if (found) matches.push(found[0]);
+        }
+        if (matches.length) {
+          categories.push(cat);
+          evidence[cat] = matches;
+        }
+      }
+      // Détecter les mots injurieux (grossièretés) dans toutes les langues
+      const badMatches = [];
+      for (const lang in BAD_WORDS) {
+        for (const word of BAD_WORDS[lang]) {
+          const wLower = word.toLowerCase();
+          if (wLower && lower.includes(wLower)) {
+            badMatches.push(word);
+          }
+        }
+      }
+      if (badMatches.length) {
+        categories.push("langage grossier");
+        evidence["langage grossier"] = badMatches;
+      }
+      return { categories, evidence };
+    }
+
+    function findLawReferences(text) {
+      const found = [];
+      const lower = text.toLowerCase();
+      for (const name in LAW_DB) {
+        const entry = LAW_DB[name];
+        for (const syn of entry.synonyms) {
+          if (lower.includes(syn.toLowerCase())) {
+            found.push(name);
+            break;
+          }
+        }
+      }
+      return [...new Set(found)];
+    }
+
+    // Détection simple de la présence de peau (nudité) via Canvas en YCbCr
+    function detectNudity(canvas) {
+      const ctx = canvas.getContext("2d");
+      const { width, height } = canvas;
+      const pixels = ctx.getImageData(0, 0, width, height).data;
+      let skinCount = 0;
+      const total = width * height;
+      for (let i = 0; i < pixels.length; i += 4) {
+        const r = pixels[i];
+        const g = pixels[i + 1];
+        const b = pixels[i + 2];
+        // Convertir en YCbCr
+        const y = 0.299 * r + 0.587 * g + 0.114 * b;
+        const cb = 128 - 0.168736 * r - 0.331264 * g + 0.5 * b;
+        const cr = 128 + 0.5 * r - 0.418688 * g - 0.081312 * b;
+        if (cb >= 80 && cb <= 135 && cr >= 135 && cr <= 180 && y > 80) {
+          skinCount++;
+        }
+      }
+      return total ? skinCount / total : 0;
+    }
+
+    document.getElementById("analyze-form").addEventListener("submit", (ev) => {
+      ev.preventDefault();
+      const title = document.getElementById("title").value.trim();
+      const text = document.getElementById("text").value.trim();
+      const imageInput = document.getElementById("image");
+      const parts = [];
+      if (title) parts.push(title);
+      if (text) parts.push(text);
+      const resultDiv = document.getElementById("result");
+      const validityEl = document.getElementById("validity");
+      const catDiv = document.getElementById("categories");
+      const lawDiv = document.getElementById("laws");
+      const evidDiv = document.getElementById("evidence");
+      const nudityDiv = document.getElementById("nudity");
+      resultDiv.classList.add("hidden");
+      catDiv.innerHTML = "";
+      lawDiv.innerHTML = "";
+      evidDiv.innerHTML = "";
+      nudityDiv.innerHTML = "";
+      // Traitement d'image si présente
+      if (imageInput.files.length) {
+        const file = imageInput.files[0];
+        const reader = new FileReader();
+        reader.onload = () => {
+          const img = new Image();
+          img.onload = () => {
+            const canvas = document.createElement("canvas");
+            canvas.width = img.width;
+            canvas.height = img.height;
+            const ctx = canvas.getContext("2d");
+            ctx.drawImage(img, 0, 0);
+            const score = detectNudity(canvas);
+            nudityDiv.textContent = `Score de nudité approximatif : ${(
+              score * 100
+            ).toFixed(2)} %`;
+            // Reconnaissance de texte (OCR) via Tesseract.js
+            (async () => {
+              try {
+                const worker = Tesseract.createWorker();
+                await worker.load();
+                await worker.loadLanguage("fra+ara");
+                await worker.initialize("fra+ara");
+                const {
+                  data: { text: ocrResult },
+                } = await worker.recognize(img);
+                await worker.terminate();
+                if (ocrResult && ocrResult.trim()) {
+                  parts.push(ocrResult.trim());
+                }
+              } catch (err) {
+                console.warn("OCR error:", err);
+              } finally {
+                compileAndDisplay();
+              }
+            })();
+          };
+          img.src = reader.result;
+        };
+        reader.readAsDataURL(file);
+      } else {
+        compileAndDisplay();
+      }
+      function compileAndDisplay() {
+        const combined = parts.join(" ");
+        const { categories, evidence } = analyzeText(combined);
+        const laws = findLawReferences(combined);
+        const isValid = !categories.some((cat) => BLOCKING.includes(cat));
+        validityEl.textContent = isValid
+          ? "Contenu validé ✅"
+          : "Contenu non valide ❌";
+        // Catégories
+        if (categories.length) {
+          const ul = document.createElement("ul");
+          ul.classList.add("list-disc", "ml-6");
+          categories.forEach((c) => {
+            const li = document.createElement("li");
+            li.textContent = c;
+            ul.appendChild(li);
+          });
+          catDiv.appendChild(document.createElement("h3")).textContent =
+            "Catégories déclenchées:";
+          catDiv.appendChild(ul);
+        }
+        // Preuves
+        const evKeys = Object.keys(evidence);
+        if (evKeys.length) {
+          evidDiv.appendChild(document.createElement("h3")).textContent =
+            "Motifs/preuves:";
+          const ul = document.createElement("ul");
+          ul.classList.add("list-disc", "ml-6");
+          evKeys.forEach((cat) => {
+            const li = document.createElement("li");
+            li.textContent = `${cat} : ${evidence[cat].join(", ")}`;
+            ul.appendChild(li);
+          });
+          evidDiv.appendChild(ul);
+        }
+        // Lois détectées
+        if (laws.length) {
+          lawDiv.appendChild(document.createElement("h3")).textContent =
+            "Lois marocaines mentionnées:";
+          const ul = document.createElement("ul");
+          ul.classList.add("list-disc", "ml-6");
+          laws.forEach((name) => {
+            const li = document.createElement("li");
+            const info = LAW_DB[name];
+            li.innerHTML = `<strong>${name}</strong> – ${info.description}`;
+            ul.appendChild(li);
+          });
+          lawDiv.appendChild(ul);
+        }
+        resultDiv.classList.remove("hidden");
+      }
+    });
+  </script>
+</body>
+</html>

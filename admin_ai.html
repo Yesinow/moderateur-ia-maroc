@@ -138,6 +138,8 @@
   <script src="https://cdn.jsdelivr.net/npm/@tensorflow/tfjs@3.19.0/dist/tf.min.js"></script>
   <!-- nsfwjs utilise un modèle pré‑entraîné pour classer les images en catégories (Porn, Sexy, etc.) -->
   <script src="https://cdn.jsdelivr.net/npm/nsfwjs@4.2.1/dist/nsfwjs.min.js"></script>
+  <!-- OCRAD.js est une alternative légère pour l'OCR. On l'utilisera en secours si Tesseract ne détecte rien -->
+  <script src="https://unpkg.com/ocrad.js@0.2.0/ocrad.min.js"></script>
 
   <script>
   // =============================
@@ -152,7 +154,7 @@
           "porno", "pornographie", "porn", "xxx", "sex tape", "vidéo porno", "film porno", "vidéo érotique", "film érotique",
           "nu", "nue", "nudité", "adultes seulement", "site porno", "photos pornos",
           // Formes anglaises et autres variantes
-          "pornstar", "porn star", "pornstars", "porno star", "porn actor", "porn actress", "porno actor", "porno actress", "adult video", "adult film", "adult movie", "adult film star", "adult movie star", "adult entertainer", "adult performer", "adult film actor", "adult film actress", "adult content", "adult star", "adult starlet", "xxx star", "nsfw",
+          "pornstar", "porn star", "pornstars", "porno star", "porn actor", "porn actress", "porno actor", "porno actress", "porn performer", "porn performer", "adult video", "adult film", "adult movie", "adult film star", "adult movie star", "adult entertainer", "adult performer", "adult film actor", "adult film actress", "adult content", "adult star", "adult starlet", "xxx star", "nsfw", "adult actor", "adult actress", "sex worker", "sex actress", "sex actor", "sex performer", "sex star",
           // Formes françaises détaillées (synonymes de porn star)
           "star du porno", "acteur porno", "actrice porno", "acteur pornographique", "actrice pornographique", "performeur adulte",
           // Mots arabes relatifs à la pornographie (إباحية)
@@ -332,10 +334,15 @@
     if(!text) return [];
     const textNorm = text.toLowerCase();
     const findings = [];
+    // Fonction d'échappement pour créer des regex sûres
+    const escapeReg = s => s.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
     for(const [cat, spec] of Object.entries(policies.categories)){
       const hits = [];
       for(const kw of (spec.mots_cles||[])){
-        if(textNorm.includes(String(kw).toLowerCase())) hits.push(kw);
+        const kwNorm = String(kw).toLowerCase();
+        // Vérifier correspondance sur des mots complets en utilisant \b (limites de mots)
+        const pattern = new RegExp('\\b' + escapeReg(kwNorm) + '\\b', 'i');
+        if(pattern.test(textNorm)) hits.push(kw);
       }
       for(const rx of (spec.regex||[])){
         if(rx.test(text)) hits.push('REGEX:'+rx.toString());
@@ -398,17 +405,76 @@
    * @returns {Promise<string>} Texte reconnu
    */
   async function extractTextFromImageFile(file){
+    // Appliquer un pré‑traitement (binarisation) pour améliorer la reconnaissance des textes colorés
+    const preprocessed = await preprocessImageForOCR(file);
     try{
       const { data: { text } } = await Tesseract.recognize(
-        file,
+        preprocessed,
         'eng+fra+ara',
         { logger: m => console.log(m) }
       );
-      return text || '';
+      const cleanText = text || '';
+      // Si aucun texte n'a été trouvé, essayer OCRAD.js en secours
+      if(!cleanText.trim() && typeof OCRAD !== 'undefined'){
+        try{
+          const img = await fileToImage(preprocessed);
+          // dessiner sur un canvas puis appeler OCRAD
+          const canvas = document.createElement('canvas');
+          canvas.width = img.naturalWidth;
+          canvas.height = img.naturalHeight;
+          const ctx = canvas.getContext('2d');
+          ctx.drawImage(img, 0, 0);
+          const ocradText = OCRAD(canvas);
+          return ocradText || '';
+        }catch(err2){
+          console.error('Erreur OCRAD', err2);
+        }
+      }
+      return cleanText;
     }catch(err){
       console.error('Erreur OCR', err);
       return '';
     }
+  }
+
+  /**
+   * Prépare un fichier image pour l'OCR en appliquant des filtrages simples afin d'augmenter le contraste.
+   * La fonction convertit l'image en niveaux de gris puis applique un seuillage global basé sur la luminance moyenne.
+   * On renvoie un Blob contenant l'image transformée (au format PNG) pour Tesseract ou OCRAD.
+   *
+   * @param {File|Blob} file
+   * @returns {Promise<Blob>} image binaire pré‑traitée
+   */
+  async function preprocessImageForOCR(file){
+    const img = await fileToImage(file);
+    const w = img.naturalWidth;
+    const h = img.naturalHeight;
+    // Dessiner dans un canvas de travail
+    const canvas = document.createElement('canvas');
+    canvas.width = w;
+    canvas.height = h;
+    const ctx = canvas.getContext('2d');
+    ctx.drawImage(img, 0, 0);
+    const imageData = ctx.getImageData(0, 0, w, h);
+    const data = imageData.data;
+    let sumL = 0;
+    // Calculer la luminance moyenne pour déterminer le seuil
+    for(let i=0; i<data.length; i+=4){
+      const r = data[i], g = data[i+1], b = data[i+2];
+      const L = 0.299*r + 0.587*g + 0.114*b;
+      sumL += L;
+    }
+    const avgL = sumL / (w*h);
+    // Appliquer le seuillage : noir si luminance < moyenne, blanc sinon
+    for(let i=0; i<data.length; i+=4){
+      const r = data[i], g = data[i+1], b = data[i+2];
+      const L = 0.299*r + 0.587*g + 0.114*b;
+      const val = L < avgL ? 0 : 255;
+      data[i] = data[i+1] = data[i+2] = val;
+    }
+    ctx.putImageData(imageData, 0, 0);
+    // Convertir en blob PNG
+    return new Promise(resolve => canvas.toBlob(resolve, 'image/png'));
   }
 
   /**

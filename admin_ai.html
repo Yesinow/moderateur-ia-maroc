@@ -148,9 +148,17 @@
       pornographie_nudite: {
         description: "Pornographie explicite, nudité non consentie, exploitation.",
         mots_cles: [
-          "porn","porno","pornographie","xxx","sex tape","nu","nue","nudité",
-          "adultes seulement",
-          "مقاطع جنسية","إباحي","بورنو","عري","صور عارية"
+          // Termes français courants pour désigner des contenus pour adultes
+          "porno", "pornographie", "porn", "xxx", "sex tape", "vidéo porno", "film porno", "vidéo érotique", "film érotique",
+          "nu", "nue", "nudité", "adultes seulement", "site porno", "photos pornos",
+          // Formes anglaises et autres variantes
+          "pornstar", "porn star", "pornstars", "porno star", "porn actor", "porn actress", "porno actor", "porno actress", "adult video", "adult film", "adult movie", "adult film star", "adult movie star", "adult entertainer", "adult performer", "adult film actor", "adult film actress", "adult content", "adult star", "adult starlet", "xxx star", "nsfw",
+          // Formes françaises détaillées (synonymes de porn star)
+          "star du porno", "acteur porno", "actrice porno", "acteur pornographique", "actrice pornographique", "performeur adulte",
+          // Mots arabes relatifs à la pornographie (إباحية)
+          "إباحي", "إباحية", "اباحي", "اباحية", "بورنو", "عري", "صور عارية", "مقاطع جنسية", "فيلم إباحي", "فيديو إباحي", "نجم إباحي", "نجمة إباحية", "ممثل إباحي", "ممثلة إباحية",
+          // Contenus pornographiques associés à des personnes trans (sans stigmatiser la communauté trans, ces termes ciblent les contenus et non les identités)
+          "porn trans", "trans porn", "porno trans", "فيديو ترانس", "ترانس بورن"
         ],
         regex: [/\b18\s*\+\b/i],
       },

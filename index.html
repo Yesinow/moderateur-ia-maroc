@@ -1,0 +1,382 @@
+<!DOCTYPE html>
+<html lang="fr">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>Modérateur de contenu (Maroc) – HTML5</title>
+  <style>
+    :root{
+      --bg:#0b0f14; --panel:#111827; --muted:#6b7280; --text:#e5e7eb; --accent:#4f46e5; --ok:#10b981; --bad:#ef4444; --warn:#f59e0b;
+      --radius:16px; --gap:14px; --shadow:0 10px 30px rgba(0,0,0,.35);
+    }
+    html,body{height:100%}
+    body{margin:0; font-family:system-ui,-apple-system,Segoe UI,Roboto,Ubuntu,Cantarell,Inter,Helvetica,Arial,sans-serif; background:linear-gradient(130deg,#0b0f14,#0e1521 60%,#0b0f14); color:var(--text)}
+    .wrap{max-width:1100px; padding:28px; margin:0 auto}
+    header{display:flex; justify-content:space-between; align-items:center; gap:var(--gap); margin-bottom:24px}
+    h1{font-size:clamp(1.4rem,3.2vw,2rem); margin:0}
+    .badge{display:inline-flex; align-items:center; gap:8px; padding:8px 12px; border-radius:999px; background:rgba(79,70,229,.18); color:#c7d2fe; font-weight:600}
+    .card{background:var(--panel); border-radius:var(--radius); box-shadow:var(--shadow); padding:18px}
+    .grid{display:grid; grid-template-columns: 1.1fr 0.9fr; gap:var(--gap)}
+    .grid-2{display:grid; grid-template-columns:1fr 1fr; gap:var(--gap)}
+    label{font-weight:600; color:#cbd5e1; font-size:.95rem}
+    input[type="text"], textarea{width:100%; background:#0b1220; color:var(--text); border:1px solid #1f2937; border-radius:12px; padding:12px 14px; outline:none}
+    input[type="file"]{width:100%}
+    textarea{min-height:140px; resize:vertical}
+    .hint{color:var(--muted); font-size:.9rem}
+    .actions{display:flex; gap:10px; flex-wrap:wrap}
+    button{cursor:pointer; background:var(--accent); color:white; border:none; padding:12px 16px; border-radius:12px; font-weight:700}
+    button.secondary{background:#1f2937}
+    .status{display:flex; align-items:center; gap:10px; font-weight:700}
+    .status.ok{color:var(--ok)}
+    .status.bad{color:var(--bad)}
+    .kv{display:grid; grid-template-columns:auto 1fr; gap:8px 14px}
+    .kv dt{color:#a3a3a3}
+    .tag{display:inline-block; padding:4px 10px; border-radius:999px; background:#0b1220; border:1px solid #1f2937; margin:2px; font-size:.85rem}
+    .muted{color:var(--muted)}
+    .imgbox{display:grid; place-items:center; aspect-ratio:4/3; border:1px dashed #334155; border-radius:12px; overflow:hidden; background:#0b1220}
+    img{max-width:100%; max-height:100%; object-fit:contain}
+    .mono{font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, "Liberation Mono", "Courier New", monospace; font-size:.92rem}
+    footer{margin-top:24px; color:#94a3b8; font-size:.85rem}
+    .note{background:#0b1220; border:1px solid #1f2937; padding:12px 14px; border-radius:10px}
+  </style>
+</head>
+<body>
+  <div class="wrap">
+    <header>
+      <h1>Modérateur de contenu (Maroc) – HTML5</h1>
+      <span class="badge" title="Prototype pédagogique">POC côté navigateur</span>
+    </header>
+
+    <div class="grid">
+      <section class="card">
+        <h2 style="margin-top:0">Entrées</h2>
+        <div style="display:grid; gap:var(--gap)">
+          <div>
+            <label for="title">Titre (optionnel)</label>
+            <input id="title" type="text" placeholder="Titre de votre article…" />
+          </div>
+          <div>
+            <label for="text">Texte / Article (optionnel)</label>
+            <textarea id="text" placeholder="Collez le contenu à vérifier…"></textarea>
+          </div>
+          <div class="grid-2">
+            <div>
+              <label for="image">Image (optionnel)</label>
+              <input id="image" type="file" accept="image/*" />
+              <div class="hint">Les images distantes peuvent être bloquées par CORS ; privilégiez un fichier local.</div>
+            </div>
+            <div>
+              <label for="lang">Langue (facultatif)</label>
+              <input id="lang" type="text" placeholder="fr / ar…" />
+            </div>
+          </div>
+          <div class="actions">
+            <button id="analyzeBtn">Analyser</button>
+            <button class="secondary" id="exportBtn" title="Exporter le dernier résultat en JSON">Exporter JSON</button>
+          </div>
+        </div>
+        <div class="note" style="margin-top:16px">
+          ⚠️ <strong>Disclaimer</strong> : ce module est un <em>prototype technique</em>, non un avis juridique. Les règles doivent être 
+          adaptées et validées par un juriste au Maroc. Les résultats sont indicatifs.
+        </div>
+      </section>
+
+      <section class="card">
+        <h2 style="margin-top:0">Aperçu image</h2>
+        <div class="imgbox"><img id="preview" alt="Aperçu" /></div>
+        <details style="margin-top:12px">
+          <summary>Paramètres heuristiques</summary>
+          <dl class="kv">
+            <dt>Seuil peau</dt><dd><code id="thresholdView" class="mono">0.35</code></dd>
+            <dt>Résolution min.</dt><dd><code class="mono">200×200</code></dd>
+            <dt>Échantillonnage</dt><dd><code class="mono">pas = 2 px</code></dd>
+          </dl>
+        </details>
+      </section>
+    </div>
+
+    <section class="card" style="margin-top:var(--gap)">
+      <h2 style="margin-top:0">Résultat</h2>
+      <div id="status" class="status muted">En attente d'analyse…</div>
+      <div id="motifs" style="margin-top:12px"></div>
+      <details style="margin-top:12px">
+        <summary><strong>Preuves & détails</strong></summary>
+        <div class="grid-2" style="margin-top:10px">
+          <div>
+            <h3 style="margin:.2rem 0">Preuves texte</h3>
+            <pre id="proofs" class="mono" style="background:#0b1220; border:1px solid #1f2937; border-radius:10px; padding:10px; white-space:pre-wrap"></pre>
+          </div>
+          <div>
+            <h3 style="margin:.2rem 0">Détails image</h3>
+            <pre id="imgDetails" class="mono" style="background:#0b1220; border:1px solid #1f2937; border-radius:10px; padding:10px"></pre>
+          </div>
+        </div>
+      </details>
+    </section>
+
+    <footer>
+      <p>© 2025 – Prototype pédagogique. Adaptation requise selon les lois marocaines. Aucune garantie.</p>
+    </footer>
+  </div>
+
+  <canvas id="work" style="display:none"></canvas>
+
+  <script>
+  // =============================
+  // 1) Politique / Règles (exemples à adapter & valider)
+  // =============================
+  const POLICY_CONFIG = {
+    categories: {
+      pornographie_nudite: {
+        description: "Pornographie explicite, nudité non consentie, exploitation.",
+        mots_cles: [
+          "porn","porno","pornographie","xxx","sex tape","nu","nue","nudité",
+          "adultes seulement",
+          "مقاطع جنسية","إباحي","بورنو","عري","صور عارية"
+        ],
+        regex: [/\b18\s*\+\b/i],
+      },
+      incitation_violence_haine: {
+        description: "Appels à la violence/haine, discrimination.",
+        mots_cles: ["tuer","massacrer","haine","exterminer","lyncher","ارهاب","قتل","الكراهية","عنف"],
+        regex: [/(tue(r|z)|extermine(r|z)|lynch(er|ez))/i, /\bhaine\b/i],
+      },
+      apologie_terrorisme: {
+        description: "Apologie/propagande/recrutement terroriste.",
+        mots_cles: ["djihad","jihad","بيعة","تفجير","قنبلة","خلافة"],
+        regex: [/\bdj?ihad\b/i, /\b(bombe|explosion|attentat)s?\b/i],
+      },
+      drogues_illicites: {
+        description: "Trafic/vente/production de drogues illicites.",
+        mots_cles: ["cocaïne","héroïne","ecstasy","meth","trafic","بيع مخدرات","حشيش"],
+        regex: [],
+      },
+      escroquerie_phishing: {
+        description: "Arnaques, phishing, usurpation.",
+        mots_cles: ["carte bancaire","iban","mot de passe","OTP","arnaque","phishing","hameçonnage"],
+        regex: [/\bOTP\b/i, /\bmots?\s*de\s*passe\b/i],
+      },
+      harcelement_diffamation: {
+        description: "Harcèlement, insultes graves, diffamation.",
+        mots_cles: ["sale","imbécile","menace","diffamation","insulte","تشهير","سب"],
+        regex: [],
+      },
+      atteintes_symboles_sensibles: {
+        description: "Atteintes illégales (selon droit local) à des symboles/noyaux sensibles.",
+        mots_cles: ["blasphème","sacrilège","insulte à","خيانة","سب الدين","إساءة"],
+        regex: [],
+      },
+
+      /**
+       * Catégorie supplémentaire pour couvrir les insultes et propos racistes ou discriminatoires.
+       * La législation marocaine (notamment la loi 88‑13 sur la presse et l'édition) réprime
+       * fermement les discours d'incitation à la haine raciale ou à la discrimination.
+       * Cette catégorie élargit la portée de la détection aux insultes communes et aux termes
+       * racistes en français, arabe et anglais. Les listes ci‑dessous sont indicatives et
+       * doivent être enrichies/validées par des juristes compétents.
+       */
+      insultes_racisme: {
+        description: "Insultes, propos racistes ou discriminatoires.",
+        mots_cles: [
+          // Français
+          "raciste", "racisme", "xénophobie", "antisémitisme", "islamophobie",
+          "sale", "imbécile", "connard", "idiot", "merde", "con",
+          // Anglais – termes génériques pour éviter d'énumérer des insultes spécifiques
+          "racist", "racism", "xenophobia", "antisemitism", "islamophobia",
+          "hate speech", "bigot",
+          // Arabe (racisme et insultes courantes)
+          "عنصري", "العنصرية", "عنصرية", "كراهية الأجانب", "كره", "حقد", "سب",
+          // Notions générales
+          "discrimination", "haine raciale"
+        ],
+        regex: [
+          /\bracis(te|me)s?\b/i,
+          /\bx[ée]nophob(i|e)/i,
+          /\banti(semi|s[ée]mite)/i,
+          /\bislamophob(i|e)/i,
+          /\b(hate\s*speech|bigot)\b/i,
+          /عنصري/,
+          /العنصرية/,
+          /سب/,
+        ],
+      },
+    },
+    image_rules: {
+      skin_ratio_threshold: 0.35,
+      min_resolution: [200, 200],
+      sample_step: 2,
+    }
+  };
+
+  const BLOCKING_CATEGORIES = new Set([
+    'pornographie_nudite',
+    'apologie_terrorisme',
+    'incitation_violence_haine',
+    // Les insultes et propos discriminatoires sont prohibés et doivent bloquer
+    'insultes_racisme',
+  ]);
+
+  // =============================
+  // 2) Utilitaires
+  // =============================
+  function checkTextAgainstPolicies(text, policies){
+    if(!text) return [];
+    const textNorm = text.toLowerCase();
+    const findings = [];
+    for(const [cat, spec] of Object.entries(policies.categories)){
+      const hits = [];
+      for(const kw of (spec.mots_cles||[])){
+        if(textNorm.includes(String(kw).toLowerCase())) hits.push(kw);
+      }
+      for(const rx of (spec.regex||[])){
+        if(rx.test(text)) hits.push('REGEX:'+rx.toString());
+      }
+      if(hits.length) findings.push({category:cat, hits});
+    }
+    return findings;
+  }
+
+  function rgbToYCbCr(r,g,b){
+    const Y  =  0.299*r + 0.587*g + 0.114*b;
+    const Cb = 128 - 0.168736*r - 0.331264*g + 0.5*b;
+    const Cr = 128 + 0.5*r - 0.418688*g - 0.081312*b;
+    return {Y,Cb,Cr};
+  }
+
+  async function checkImageBasicNudityFromFile(file, policies){
+    if(!file) return {flag:false, details:{reason:'no_image'}};
+    const img = await fileToImage(file);
+    const w = img.naturalWidth, h = img.naturalHeight;
+    const [minw, minh] = policies.image_rules.min_resolution;
+    if(w<minw || h<minh){
+      return {flag:false, details:{reason:'resolution_trop_faible', size:[w,h]}};
+    }
+    const step = policies.image_rules.sample_step || 2;
+
+    const canvas = document.getElementById('work');
+    const ctx = canvas.getContext('2d', { willReadFrequently:true });
+    canvas.width = w; canvas.height = h;
+    ctx.drawImage(img, 0, 0, w, h);
+    let skinLike=0, sampled=0;
+    const {data} = ctx.getImageData(0,0,w,h);
+    for(let y=0; y<h; y+=step){
+      for(let x=0; x<w; x+=step){
+        const i = (y*w + x) * 4;
+        const r=data[i], g=data[i+1], b=data[i+2];
+        const {Cb,Cr} = rgbToYCbCr(r,g,b);
+        if(Cr>=135 && Cr<=180 && Cb>=85 && Cb<=135){ skinLike++; }
+        sampled++;
+      }
+    }
+    const ratio = skinLike/Math.max(1, sampled);
+    const threshold = policies.image_rules.skin_ratio_threshold;
+    return {
+      flag: ratio >= threshold,
+      details: {skin_ratio:+ratio.toFixed(3), threshold, sampled_pixels:sampled, size:[w,h]}
+    };
+  }
+
+  function decide(findings, imageFlag){
+    const motifs=[];
+    for(const f of findings){
+      const label = `${f.category}: ${f.hits.slice(0,5).join(', ')}`;
+      if(BLOCKING_CATEGORIES.has(f.category)) motifs.push(`Bloquant – ${label}`);
+      else motifs.push(`À vérifier – ${label}`);
+    }
+    if(imageFlag) motifs.push('Bloquant – image_suspecte_nudite');
+    const valide = !motifs.some(m => m.startsWith('Bloquant'));
+    return {valide, motifs: motifs.length ? motifs : ['OK – aucun signal fort']};
+  }
+
+  // Helpers d'UI
+  function fileToImage(file){
+    return new Promise((resolve, reject)=>{
+      const url = URL.createObjectURL(file);
+      const img = new Image();
+      img.onload = ()=>{ URL.revokeObjectURL(url); resolve(img); };
+      img.onerror = (e)=>{ URL.revokeObjectURL(url); reject(e); };
+      img.src = url;
+    });
+  }
+
+  function setPreview(file){
+    const img = document.getElementById('preview');
+    if(!file){ img.removeAttribute('src'); return; }
+    const url = URL.createObjectURL(file);
+    img.onload = ()=> URL.revokeObjectURL(url);
+    img.src = url;
+  }
+
+  function renderResults(res){
+    const status = document.getElementById('status');
+    status.classList.remove('ok','bad','muted');
+    status.classList.add(res.valide ? 'ok' : 'bad');
+    status.textContent = res.valide ? 'Validé' : 'Non validé';
+
+    const motifsBox = document.getElementById('motifs');
+    motifsBox.innerHTML = '';
+    for(const m of res.motifs){
+      const span = document.createElement('span');
+      span.className = 'tag';
+      span.textContent = m;
+      motifsBox.appendChild(span);
+    }
+
+    document.getElementById('proofs').textContent = JSON.stringify(res.preuves, null, 2);
+    document.getElementById('imgDetails').textContent = res.details_image ? JSON.stringify(res.details_image, null, 2) : '—';
+  }
+
+  // =============================
+  // 3) Flux principal
+  // =============================
+  let lastResult = null;
+  const imageInput = document.getElementById('image');
+  imageInput.addEventListener('change', e => setPreview(imageInput.files?.[0]));
+
+  document.getElementById('analyzeBtn').addEventListener('click', async () => {
+    const title = document.getElementById('title').value || '';
+    const text  = document.getElementById('text').value || '';
+    const file  = imageInput.files && imageInput.files[0] ? imageInput.files[0] : null;
+
+    // 1) Texte
+    const findings = [
+      ...checkTextAgainstPolicies(title, POLICY_CONFIG),
+      ...checkTextAgainstPolicies(text, POLICY_CONFIG),
+    ];
+    const preuves = {};
+    for(const f of findings){
+      if(!preuves[f.category]) preuves[f.category] = [];
+      preuves[f.category].push(...f.hits);
+    }
+
+    // 2) Image
+    let imageFlag=false, details_image=null;
+    try{
+      if(file){
+        const imgRes = await checkImageBasicNudityFromFile(file, POLICY_CONFIG);
+        imageFlag = imgRes.flag; details_image = imgRes.details;
+      }
+    }catch(err){
+      details_image = { error: String(err) };
+    }
+
+    // 3) Décision
+    const decision = decide(findings, imageFlag);
+    lastResult = { ...decision, preuves, details_image };
+    renderResults(lastResult);
+  });
+
+  document.getElementById('exportBtn').addEventListener('click', () => {
+    if(!lastResult){ alert('Aucun résultat à exporter.'); return; }
+    const blob = new Blob([JSON.stringify(lastResult, null, 2)], {type:'application/json'});
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement('a');
+    a.href = url; a.download = 'moderation_result.json'; a.click();
+    URL.revokeObjectURL(url);
+  });
+
+  // Init UI
+  document.getElementById('thresholdView').textContent = String(POLICY_CONFIG.image_rules.skin_ratio_threshold);
+  </script>
+</body>
+</html>
